@@ -153,7 +153,8 @@ def split_code_and_description(title, product_url):
     The URL contains the code as a slug: '.../s/ap-4921/...'.
     We find how many words at the start of the title match that slug.
     """
-    slug_match = re.search(r"/s/([^/]+)/", product_url or "")
+    slug_match = (re.search(r"/s/([^/]+)/", product_url or "")
+                  or re.search(r"/([^/?]+)\.html", product_url or ""))
     words = title.split()
     if slug_match:
         slug = re.sub(r"[^a-z0-9]", "", slug_match.group(1))
@@ -168,7 +169,15 @@ def split_code_and_description(title, product_url):
     return "", ""
 
 
-PRODUCT_LINK = "a[href*='/catalog/product/view/'], a.product-item-link"
+PRODUCT_LINK = ("a.product-item-link, a.product-item-photo, "
+                "a[href*='/catalog/product/view/']")
+
+
+def is_product_url(url):
+    """Real product pages: '/catalog/product/view/...' or '/de/agi-5068-0008.html'."""
+    return url.startswith("http") and (
+        "/catalog/product/view/" in url or url.split("?")[0].endswith(".html")
+    )
 
 
 def find_product_cards(soup):
@@ -209,7 +218,7 @@ def diagnose(url):
     response = make_session().get(add_store_param(url), timeout=30)
     html = response.text
     soup = BeautifulSoup(html, "lxml")
-    first = soup.select_one("a[href*='/catalog/product/view/']")
+    first = soup.select_one("li.product-item a.product-item-photo")
     snippet = ""
     if first is not None:
         box = first
@@ -219,7 +228,7 @@ def diagnose(url):
     return {
         "page_title": soup.title.get_text(strip=True) if soup.title else "",
         "html_length": len(html),
-        "product_links": len(soup.select("a[href*='/catalog/product/view/']")),
+        "product_links": len(soup.select("li.product-item a.product-item-photo")),
         "li.product-item": len(soup.select("li.product-item")),
         "price elements": len(soup.select("[data-price-type]")),
         "sub-category links": len(soup.select("a[href$='.html']")),
@@ -245,7 +254,7 @@ def parse_listing_page(html, manufacturer):
             continue
 
         url = link.get("href", "")
-        if "/catalog/product/view/" not in url:
+        if not is_product_url(url):
             continue  # skip empty template cards (wishlist/compare sidebar)
         code, description = read_code_and_description(link, url)
         # the site sometimes puts the extra number on the code line
