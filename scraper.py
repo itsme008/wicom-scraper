@@ -13,7 +13,7 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -119,6 +119,21 @@ def clean_description(text):
     return text.strip(" ,"), pack
 
 
+UNIT_LABELS = ("Packaging Unit", "Verpackungseinheit", "Unidad de embalaje",
+               "Unité d'emballage", "VPE")
+
+
+def read_packaging_unit(card):
+    """Text of the card's packaging-unit box, e.g. 'PK/1000' or 'PCE'."""
+    box = card.select_one(".product-amount-container")
+    if box is None:
+        return ""
+    text = box.get_text(" ", strip=True)
+    for label in UNIT_LABELS:
+        text = text.replace(label, "")
+    return text.strip(" :")
+
+
 def parse_price(element):
     """Turn a Magento price element into a number (or None)."""
     if element is None:
@@ -179,6 +194,8 @@ SKIP_IN_URL = ("wishlist", "compare", "checkout", "cart", "customer", "javascrip
 def is_product_url(url):
     """Any real page link inside a product card (not wishlist/compare/cart)."""
     return (url.startswith("http") and "wicom.com" in url
+            and "#" not in url
+            and urlparse(url).path.strip("/") != ""
             and not any(word in url for word in SKIP_IN_URL))
 
 
@@ -284,7 +301,8 @@ def parse_listing_page(html, manufacturer):
         # the site sometimes puts the extra number on the code line
         extra = code[len(clean_code(code)):].strip()
         code = clean_code(code)
-        description, pack_size = clean_description(f"{extra} {description}")
+        description, name_pack = clean_description(f"{extra} {description}")
+        pack_size = read_packaging_unit(item) or name_pack
 
         final_price = parse_price(item.select_one('[data-price-type="finalPrice"]'))
         old_price = parse_price(item.select_one('[data-price-type="oldPrice"]'))
