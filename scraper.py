@@ -20,7 +20,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 BASE_URL = "https://wicom.com/uk/"
-PAGE_SIZE = 100          # products per listing page (site allows 36/48/100)
 MAX_PAGES = 500          # safety cap per manufacturer
 
 HEADERS = {
@@ -272,18 +271,9 @@ def get_manufacturers(session=None):
 
 
 def scrape_manufacturer(session, brand, max_pages=MAX_PAGES, delay=1.0):
-    """Scrape all pages for one manufacturer."""
-    # Try 100 products per page first; if the site ignores/breaks that,
-    # fall back to the normal page (36 per page).
-    page_urls = [
-        f"{brand['url']}?product_list_limit={PAGE_SIZE}&p={{page}}",
-        f"{brand['url']}?p={{page}}",
-    ]
-    for pattern in page_urls:
-        products = scrape_pages(session, brand, pattern, max_pages, delay)
-        if products:
-            return products
-    return []
+    """Scrape all pages for one manufacturer (site shows 36 products per page)."""
+    pattern = f"{brand['url']}?p={{page}}"
+    return scrape_pages(session, brand, pattern, max_pages, delay)
 
 
 def scrape_pages(session, brand, pattern, max_pages, delay):

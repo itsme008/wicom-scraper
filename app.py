@@ -5,6 +5,7 @@ Run locally:  streamlit run app.py
 Flow: 1) load manufacturers  2) run a small test  3) approve  4) full run in batches
 """
 
+import base64
 from datetime import datetime
 
 import pandas as pd
@@ -28,6 +29,19 @@ for key, default in {
 
 def to_csv(df):
     return df.to_csv(index=False).encode("utf-8-sig")  # utf-8-sig opens nicely in Excel
+
+
+def download_section(df, file_name, key):
+    """A download button plus a plain link as a backup."""
+    data = to_csv(df)
+    st.download_button("⬇ Download CSV", data, file_name=file_name,
+                       mime="text/csv", key=key)
+    b64 = base64.b64encode(data).decode()
+    st.markdown(
+        f'<a href="data:text/csv;base64,{b64}" download="{file_name}">'
+        f"Button not working? Click here to download {file_name}</a>",
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------- Sidebar settings ----------------
@@ -71,7 +85,7 @@ brand_names = [b["name"] for b in brands]
 # ---------------- Step 2: test run ----------------
 st.subheader("Step 2 — Test run (required)")
 test_brands = st.multiselect("Manufacturers to test", brand_names, default=brand_names[:2])
-test_pages = st.number_input("Pages per manufacturer (100 products each)", 1, 3, 1)
+test_pages = st.number_input("Pages per manufacturer (36 products each)", 1, 3, 1)
 
 if st.button("Run test", type="primary", disabled=not test_brands):
     selected = [b for b in brands if b["name"] in test_brands]
@@ -90,9 +104,7 @@ if test_df is not None:
     else:
         st.write(f"Test found **{len(test_df)}** products. Check that the columns look right:")
         st.dataframe(test_df, use_container_width=True)
-        st.download_button("⬇ Download test CSV", to_csv(test_df),
-                           file_name="wicom_test.csv", mime="text/csv",
-                           on_click="ignore")
+        download_section(test_df, "wicom_test.csv", key="dl_test")
         if st.checkbox("✅ The test results look correct", value=st.session_state.test_passed):
             st.session_state.test_passed = True
 
@@ -139,6 +151,4 @@ full_df = st.session_state.full_df
 if full_df is not None and not full_df.empty:
     st.dataframe(full_df, use_container_width=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    st.download_button("⬇ Download CSV", to_csv(full_df),
-                       file_name=f"wicom_products_{stamp}.csv", mime="text/csv",
-                       on_click="ignore")
+    download_section(full_df, f"wicom_products_{stamp}.csv", key="dl_full")
