@@ -198,6 +198,10 @@ def diagnose(url):
         "price elements": len(soup.select("[data-price-type]")),
         "sub-category links": len(soup.select("a[href$='.html']")),
         "products_parsed": len(parse_listing_page(html, "test")),
+        "first_3_codes": [r["Product Code"] for r in parse_listing_page(html, "test")[:3]],
+        "page_links": sorted({a["href"] for a in soup.select("a[href*='p=']")
+                              if re.search(r"[?&]p=\d+", a["href"])})[:10],
+        "final_url": url,
         "html_snippet": snippet or html[:4000],
     }
 
