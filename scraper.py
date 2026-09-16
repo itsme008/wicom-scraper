@@ -47,15 +47,29 @@ def make_session():
     session = requests.Session()
     session.mount("https://", adapter)
     session.headers.update(HEADERS)
+    # Ask for the UK store, so US-based servers aren't redirected to /us/
+    for name in ("store", "store_code", "geoip_store"):
+        session.cookies.set(name, "uk", domain="wicom.com")
     return session
+
+
+class WrongStoreError(Exception):
+    """The site redirected us away from the UK store."""
+
+
+def add_store_param(url):
+    joiner = "&" if "?" in url else "?"
+    return f"{url}{joiner}___store=uk"
 
 
 def fetch(session, url, delay=1.0):
     """Download a page, with a small random pause to be polite to the site."""
     if delay > 0:
         time.sleep(delay + random.uniform(0, delay / 2))
-    response = session.get(url, timeout=30)
+    response = session.get(add_store_param(url), timeout=30)
     response.raise_for_status()
+    if "/uk/" not in response.url:
+        raise WrongStoreError(f"Redirected to {response.url} (asked for {url})")
     return response.text
 
 
@@ -181,7 +195,8 @@ def pick_title_link(card):
 
 def diagnose(url):
     """Small report to help fix the parser if the site layout changes."""
-    html = fetch(make_session(), url, delay=0)
+    response = make_session().get(add_store_param(url), timeout=30)
+    html = response.text
     soup = BeautifulSoup(html, "lxml")
     first = soup.select_one("a[href*='/catalog/product/view/']")
     snippet = ""
@@ -201,7 +216,9 @@ def diagnose(url):
         "first_3_codes": [r["Product Code"] for r in parse_listing_page(html, "test")[:3]],
         "page_links": sorted({a["href"] for a in soup.select("a[href*='p=']")
                               if re.search(r"[?&]p=\d+", a["href"])})[:10],
-        "final_url": url,
+        "requested_url": url,
+        "landed_on": response.url,
+        "redirects": [r.headers.get("Location") for r in response.history],
         "html_snippet": snippet or html[:4000],
     }
 
