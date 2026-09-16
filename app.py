@@ -90,6 +90,9 @@ if test_df is not None:
     else:
         st.write(f"Test found **{len(test_df)}** products. Check that the columns look right:")
         st.dataframe(test_df, use_container_width=True)
+        st.download_button("⬇ Download test CSV", to_csv(test_df),
+                           file_name="wicom_test.csv", mime="text/csv",
+                           on_click="ignore")
         if st.checkbox("✅ The test results look correct", value=st.session_state.test_passed):
             st.session_state.test_passed = True
 
@@ -137,4 +140,5 @@ if full_df is not None and not full_df.empty:
     st.dataframe(full_df, use_container_width=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     st.download_button("⬇ Download CSV", to_csv(full_df),
-                       file_name=f"wicom_products_{stamp}.csv", mime="text/csv")
+                       file_name=f"wicom_products_{stamp}.csv", mime="text/csv",
+                       on_click="ignore")

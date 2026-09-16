@@ -69,6 +69,36 @@ def slugify(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+PACK_SIZE = re.compile(r",\s*(\d+\s*\*\s*[\d.,]+\s*[^,]*)$")
+
+
+def clean_code(code):
+    """'Z3AF / 7000103752' -> 'Z3AF'   'TR642E - 7100347562' -> 'TR642E'"""
+    return re.split(r"\s+[/-]\s*|\s*/\s+", code.strip())[0].strip()
+
+
+def clean_description(text):
+    """
+    '/ 7000103752 3M,Z3AF/2 BACK PLATE KIT FOR VERSAFLO,1 * 1 KIT'
+      -> ('Z3AF/2 BACK PLATE KIT FOR VERSAFLO', '1 * 1 KIT')
+    """
+    text = text.strip()
+    # 1) take the pack size off the end: ',1 * 50 items'
+    pack = ""
+    match = PACK_SIZE.search(text)
+    if match:
+        pack = match.group(1).strip()
+        text = text[:match.start()]
+    # 2) drop a leftover secondary number at the start: '/ 7000103752 '
+    text = re.sub(r"^[/-]?\s*\d{6,}\s+", "", text)
+    # 3) drop an upper-case brand prefix: '3M,'  'CYTIVA PALL,'
+    if "," in text:
+        prefix, rest = text.split(",", 1)
+        if prefix.strip() and prefix == prefix.upper() and len(prefix) <= 25 and rest.strip():
+            text = rest
+    return text.strip(" ,"), pack
+
+
 def parse_price(element):
     """Turn a Magento price element into a number (or None)."""
     if element is None:
@@ -82,6 +112,17 @@ def parse_price(element):
     return None
 
 
+def read_code_and_description(link, product_url):
+    """
+    The product name looks like:  <strong>CODE<br/>DESCRIPTION</strong>
+    so the line break tells us exactly where the code ends.
+    """
+    lines = [t.strip() for t in link.get_text("\n").split("\n") if t.strip()]
+    if len(lines) >= 2:
+        return lines[0], " ".join(lines[1:])
+    return split_code_and_description(" ".join(lines), product_url)
+
+
 def split_code_and_description(title, product_url):
     """
     The product title looks like 'AP-4921 CYTIVA PALL,ACRODISC ...'.
@@ -91,9 +132,9 @@ def split_code_and_description(title, product_url):
     slug_match = re.search(r"/s/([^/]+)/", product_url or "")
     words = title.split()
     if slug_match:
-        slug = slug_match.group(1)
+        slug = re.sub(r"[^a-z0-9]", "", slug_match.group(1))
         for i in range(1, len(words) + 1):
-            if slugify(" ".join(words[:i])) == slug:
+            if re.sub(r"[^a-z0-9]", "", " ".join(words[:i]).lower()) == slug:
                 code = " ".join(words[:i])
                 description = " ".join(words[i:]) or code
                 return code, description
@@ -175,8 +216,11 @@ def parse_listing_page(html, manufacturer):
         url = link.get("href", "")
         if "/catalog/product/view/" not in url:
             continue  # skip empty template cards (wishlist/compare sidebar)
-        title = link.get_text(" ", strip=True)
-        code, description = split_code_and_description(title, url)
+        code, description = read_code_and_description(link, url)
+        # the site sometimes puts the extra number on the code line
+        extra = code[len(clean_code(code)):].strip()
+        code = clean_code(code)
+        description, pack_size = clean_description(f"{extra} {description}")
 
         final_price = parse_price(item.select_one('[data-price-type="finalPrice"]'))
         old_price = parse_price(item.select_one('[data-price-type="oldPrice"]'))
@@ -191,6 +235,7 @@ def parse_listing_page(html, manufacturer):
             "Manufacturer": manufacturer,
             "Product Code": code,
             "Description": description,
+            "Pack Size": pack_size,
             "Original Price (EUR)": original,
             "Discounted Price (EUR)": discounted,
             "Product URL": url,
