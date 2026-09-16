@@ -19,7 +19,17 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-BASE_URL = "https://wicom.com/uk/"
+STORE = "de"  # which WICOM store to scrape: "de", "uk", "en", ...
+
+
+def set_store(code):
+    """Switch store, e.g. set_store("de")."""
+    global STORE
+    STORE = code.strip().strip("/").lower()
+
+
+def base_url():
+    return f"https://wicom.com/{STORE}/"
 MAX_PAGES = 500          # safety cap per manufacturer
 
 HEADERS = {
@@ -47,9 +57,6 @@ def make_session():
     session = requests.Session()
     session.mount("https://", adapter)
     session.headers.update(HEADERS)
-    # Ask for the UK store, so US-based servers aren't redirected to /us/
-    for name in ("store", "store_code", "geoip_store"):
-        session.cookies.set(name, "uk", domain="wicom.com")
     return session
 
 
@@ -58,8 +65,7 @@ class WrongStoreError(Exception):
 
 
 def add_store_param(url):
-    joiner = "&" if "?" in url else "?"
-    return f"{url}{joiner}___store=uk"
+    return url  # left as a hook; forcing a store code caused redirects
 
 
 def fetch(session, url, delay=1.0):
@@ -68,7 +74,7 @@ def fetch(session, url, delay=1.0):
         time.sleep(delay + random.uniform(0, delay / 2))
     response = session.get(add_store_param(url), timeout=30)
     response.raise_for_status()
-    if "/uk/" not in response.url:
+    if f"/{STORE}/" not in response.url:
         raise WrongStoreError(f"Redirected to {response.url} (asked for {url})")
     return response.text
 
@@ -119,10 +125,15 @@ def parse_price(element):
     amount = element.get("data-price-amount")
     if amount:
         return round(float(amount), 2)
-    match = re.search(r"\d[\d,]*\.?\d*", element.get_text(" ", strip=True))
-    if match:
-        return round(float(match.group().replace(",", "")), 2)
-    return None
+    match = re.search(r"\d[\d.,]*", element.get_text(" ", strip=True))
+    if not match:
+        return None
+    number = match.group().rstrip(".,")
+    if re.search(r",\d{1,2}$", number):          # German: 1.234,56
+        number = number.replace(".", "").replace(",", ".")
+    else:                                         # English: 1,234.56
+        number = number.replace(",", "")
+    return round(float(number), 2)
 
 
 def read_code_and_description(link, product_url):
@@ -271,7 +282,7 @@ def parse_listing_page(html, manufacturer):
 def get_manufacturers(session=None):
     """Read the manufacturer list from the 'Manufacturers' menu."""
     session = session or make_session()
-    soup = BeautifulSoup(fetch(session, BASE_URL, delay=0), "lxml")
+    soup = BeautifulSoup(fetch(session, base_url(), delay=0), "lxml")
 
     brands = {}
     for menu_link in soup.select('a[href$="/hersteller/"]'):
@@ -292,8 +303,9 @@ def get_manufacturers(session=None):
 
 
 def scrape_manufacturer(session, brand, max_pages=MAX_PAGES, delay=1.0):
-    """Scrape all pages for one manufacturer (site shows 36 products per page)."""
-    pattern = f"{brand['url']}?p={{page}}"
+    """Scrape all pages for one manufacturer, 100 products per page
+    (same link format the site uses: ?p=3&product_list_limit=100)."""
+    pattern = f"{brand['url']}?p={{page}}&product_list_limit=100"
     return scrape_pages(session, brand, pattern, max_pages, delay)
 
 

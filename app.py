@@ -11,11 +11,11 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from scraper import deduplicate, diagnose, get_manufacturers, scrape_batch
+from scraper import deduplicate, diagnose, get_manufacturers, scrape_batch, set_store
 
 st.set_page_config(page_title="WICOM UK Scraper", page_icon="🧪", layout="wide")
 st.title("🧪 WICOM UK Product Scraper")
-st.caption("Scrapes manufacturer, product code, description and prices from wicom.com/uk")
+st.caption("Scrapes manufacturer, product code, description and prices from wicom.com")
 
 # Remember things between button clicks
 for key, default in {
@@ -47,12 +47,21 @@ def download_section(df, file_name, key):
 # ---------------- Sidebar settings ----------------
 with st.sidebar:
     st.header("Settings")
+    store = st.selectbox("WICOM store", ["de", "uk", "en", "eu", "es", "fr"],
+                         help="Use the store the server isn't redirected away from.")
+    if st.session_state.get("store") != store:
+        # new store -> start fresh
+        for k in ("brands", "test_df", "full_df"):
+            st.session_state[k] = None
+        st.session_state.test_passed = False
+        st.session_state.store = store
+    set_store(store)
     workers = st.slider("Parallel workers", 1, 5, 3,
                         help="More = faster, but heavier on the website.")
     delay = st.slider("Delay between requests (seconds)", 0.5, 5.0, 1.0, 0.5)
     batch_size = st.number_input("Manufacturers per batch", 1, 50, 5)
     with st.expander("🔧 Diagnose a page"):
-        diag_url = st.text_input("Page URL", "https://wicom.com/uk/sale.html")
+        diag_url = st.text_input("Page URL", f"https://wicom.com/{store}/sale.html")
         if st.button("Diagnose"):
             try:
                 report = diagnose(diag_url)
@@ -85,7 +94,7 @@ brand_names = [b["name"] for b in brands]
 # ---------------- Step 2: test run ----------------
 st.subheader("Step 2 — Test run (required)")
 test_brands = st.multiselect("Manufacturers to test", brand_names, default=brand_names[:2])
-test_pages = st.number_input("Pages per manufacturer (36 products each)", 1, 3, 1)
+test_pages = st.number_input("Pages per manufacturer (100 products each)", 1, 3, 1)
 
 if st.button("Run test", type="primary", disabled=not test_brands):
     selected = [b for b in brands if b["name"] in test_brands]
