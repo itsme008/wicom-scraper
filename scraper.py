@@ -13,6 +13,7 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -169,15 +170,16 @@ def split_code_and_description(title, product_url):
     return "", ""
 
 
-PRODUCT_LINK = ("a.product-item-link, a.product-item-photo, "
-                "a[href*='/catalog/product/view/']")
+PRODUCT_LINK = "a[href]"
+
+
+SKIP_IN_URL = ("wishlist", "compare", "checkout", "cart", "customer", "javascript:")
 
 
 def is_product_url(url):
-    """Real product pages: '/catalog/product/view/...' or '/de/agi-5068-0008.html'."""
-    return url.startswith("http") and (
-        "/catalog/product/view/" in url or url.split("?")[0].endswith(".html")
-    )
+    """Any real page link inside a product card (not wishlist/compare/cart)."""
+    return (url.startswith("http") and "wicom.com" in url
+            and not any(word in url for word in SKIP_IN_URL))
 
 
 def find_product_cards(soup):
@@ -207,7 +209,8 @@ def find_product_cards(soup):
 
 def pick_title_link(card):
     """The product link with the most text (the image link has no text)."""
-    links = card.select(PRODUCT_LINK)
+    links = [a for a in card.select(PRODUCT_LINK)
+             if is_product_url(urljoin("https://wicom.com/", a["href"]))]
     if not links:
         return None
     return max(links, key=lambda a: len(a.get_text(strip=True)))
@@ -218,22 +221,24 @@ def diagnose(url):
     response = make_session().get(add_store_param(url), timeout=30)
     html = response.text
     soup = BeautifulSoup(html, "lxml")
-    first = soup.select_one("li.product-item a.product-item-photo")
+    parsed = parse_listing_page(html, "test")
+    parsed_urls = {r["Product URL"] for r in parsed}
     snippet = ""
-    if first is not None:
-        box = first
-        for _ in range(4):
-            box = box.parent or box
-        snippet = str(box)[:4000]
+    for card in soup.select("ol.product-items > li.product-item"):
+        link = pick_title_link(card)
+        url = urljoin("https://wicom.com/", link["href"]) if link else ""
+        if url not in parsed_urls:          # show a card we could NOT read
+            snippet = "NOT PARSED CARD:\n" + str(card)[:3000]
+            break
     return {
         "page_title": soup.title.get_text(strip=True) if soup.title else "",
         "html_length": len(html),
-        "product_links": len(soup.select("li.product-item a.product-item-photo")),
+        "cards_in_list": len(soup.select("ol.product-items > li.product-item")),
         "li.product-item": len(soup.select("li.product-item")),
         "price elements": len(soup.select("[data-price-type]")),
         "sub-category links": len(soup.select("a[href$='.html']")),
-        "products_parsed": len(parse_listing_page(html, "test")),
-        "first_3_codes": [r["Product Code"] for r in parse_listing_page(html, "test")[:3]],
+        "products_parsed": len(parsed),
+        "first_3_codes": [r["Product Code"] for r in parsed[:3]],
         "page_links": sorted({a["href"] for a in soup.select("a[href*='p=']")
                               if re.search(r"[?&]p=\d+", a["href"])})[:10],
         "requested_url": url,
@@ -253,7 +258,7 @@ def parse_listing_page(html, manufacturer):
         if link is None:
             continue
 
-        url = link.get("href", "")
+        url = urljoin("https://wicom.com/", link.get("href", ""))
         if not is_product_url(url):
             continue  # skip empty template cards (wishlist/compare sidebar)
         code, description = read_code_and_description(link, url)
