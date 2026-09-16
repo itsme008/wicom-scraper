@@ -89,6 +89,8 @@ if not brands:
     st.stop()
 
 st.success(f"Found {len(brands)} manufacturers.")
+with st.expander("See manufacturer links"):
+    st.dataframe(pd.DataFrame(brands), use_container_width=True)
 brand_names = [b["name"] for b in brands]
 
 # ---------------- Step 2: test run ----------------
