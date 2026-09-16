@@ -10,7 +10,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from scraper import deduplicate, get_manufacturers, scrape_batch
+from scraper import deduplicate, diagnose, get_manufacturers, scrape_batch
 
 st.set_page_config(page_title="WICOM UK Scraper", page_icon="🧪", layout="wide")
 st.title("🧪 WICOM UK Product Scraper")
@@ -37,6 +37,16 @@ with st.sidebar:
                         help="More = faster, but heavier on the website.")
     delay = st.slider("Delay between requests (seconds)", 0.5, 5.0, 1.0, 0.5)
     batch_size = st.number_input("Manufacturers per batch", 1, 50, 5)
+    with st.expander("🔧 Diagnose a page"):
+        diag_url = st.text_input("Page URL", "https://wicom.com/uk/sale.html")
+        if st.button("Diagnose"):
+            try:
+                report = diagnose(diag_url)
+                snippet = report.pop("html_snippet")
+                st.json(report)
+                st.code(snippet, language="html")
+            except Exception as exc:
+                st.error(str(exc))
     if st.button("Reset everything"):
         st.session_state.clear()
         st.rerun()

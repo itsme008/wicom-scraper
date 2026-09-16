@@ -103,15 +103,72 @@ def split_code_and_description(title, product_url):
     return "", ""
 
 
+PRODUCT_LINK = "a[href*='/catalog/product/view/'], a.product-item-link"
+
+
+def find_product_cards(soup):
+    """
+    Find one 'card' element per product.
+    First try the standard Magento card; if the theme is different,
+    walk up from each product link to the nearest <li> or <div> with a price.
+    """
+    cards = soup.select("li.product-item, div.product-item")
+    if cards:
+        return cards
+
+    cards, seen = [], set()
+    for link in soup.select(PRODUCT_LINK):
+        card = link
+        for _ in range(8):  # climb a few levels at most
+            if card.parent is None:
+                break
+            card = card.parent
+            if card.name in ("li", "div") and card.select_one("[data-price-type], .price"):
+                break
+        if id(card) not in seen:
+            seen.add(id(card))
+            cards.append(card)
+    return cards
+
+
+def pick_title_link(card):
+    """The product link with the most text (the image link has no text)."""
+    links = card.select(PRODUCT_LINK)
+    if not links:
+        return None
+    return max(links, key=lambda a: len(a.get_text(strip=True)))
+
+
+def diagnose(url):
+    """Small report to help fix the parser if the site layout changes."""
+    html = fetch(make_session(), url, delay=0)
+    soup = BeautifulSoup(html, "lxml")
+    first = soup.select_one("a[href*='/catalog/product/view/']")
+    snippet = ""
+    if first is not None:
+        box = first
+        for _ in range(4):
+            box = box.parent or box
+        snippet = str(box)[:4000]
+    return {
+        "page_title": soup.title.get_text(strip=True) if soup.title else "",
+        "html_length": len(html),
+        "product_links": len(soup.select("a[href*='/catalog/product/view/']")),
+        "li.product-item": len(soup.select("li.product-item")),
+        "price elements": len(soup.select("[data-price-type]")),
+        "sub-category links": len(soup.select("a[href$='.html']")),
+        "products_parsed": len(parse_listing_page(html, "test")),
+        "html_snippet": snippet or html[:4000],
+    }
+
+
 def parse_listing_page(html, manufacturer):
     """Return a list of product dicts found on one listing page."""
     soup = BeautifulSoup(html, "lxml")
     rows = []
 
-    for item in soup.select("li.product-item"):
-        link = item.select_one("a.product-item-link") or item.select_one(
-            "a[href*='/catalog/product/view/']"
-        )
+    for item in find_product_cards(soup):
+        link = pick_title_link(item)
         if link is None:
             continue
 
