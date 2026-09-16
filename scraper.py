@@ -112,7 +112,7 @@ def find_product_cards(soup):
     First try the standard Magento card; if the theme is different,
     walk up from each product link to the nearest <li> or <div> with a price.
     """
-    cards = soup.select("li.product-item, div.product-item")
+    cards = soup.select("ol.product-items > li.product-item")
     if cards:
         return cards
 
@@ -173,6 +173,8 @@ def parse_listing_page(html, manufacturer):
             continue
 
         url = link.get("href", "")
+        if "/catalog/product/view/" not in url:
+            continue  # skip empty template cards (wishlist/compare sidebar)
         title = link.get_text(" ", strip=True)
         code, description = split_code_and_description(title, url)
 
@@ -226,24 +228,33 @@ def get_manufacturers(session=None):
 
 def scrape_manufacturer(session, brand, max_pages=MAX_PAGES, delay=1.0):
     """Scrape all pages for one manufacturer."""
+    # Try 100 products per page first; if the site ignores/breaks that,
+    # fall back to the normal page (36 per page).
+    page_urls = [
+        f"{brand['url']}?product_list_limit={PAGE_SIZE}&p={{page}}",
+        f"{brand['url']}?p={{page}}",
+    ]
+    for pattern in page_urls:
+        products = scrape_pages(session, brand, pattern, max_pages, delay)
+        if products:
+            return products
+    return []
+
+
+def scrape_pages(session, brand, pattern, max_pages, delay):
+    """Go page by page until a page brings no new products."""
     products = []
     seen_urls = set()
 
     for page in range(1, max_pages + 1):
-        url = f"{brand['url']}?product_list_limit={PAGE_SIZE}&p={page}"
-        rows = parse_listing_page(fetch(session, url, delay), brand["name"])
-
+        rows = parse_listing_page(fetch(session, pattern.format(page=page), delay), brand["name"])
         new_rows = [r for r in rows if r["Product URL"] not in seen_urls]
         # Magento repeats the last page when you go past the end -> stop.
         if not new_rows:
             break
-
         for r in new_rows:
             seen_urls.add(r["Product URL"])
         products.extend(new_rows)
-
-        if len(rows) < PAGE_SIZE:  # last page
-            break
 
     return products
 
