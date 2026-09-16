@@ -241,13 +241,11 @@ def diagnose(url):
     html = response.text
     soup = BeautifulSoup(html, "lxml")
     parsed = parse_listing_page(html, "test")
-    parsed_urls = {r["Product URL"] for r in parsed}
     snippet = ""
     for card in soup.select("ol.product-items > li.product-item"):
-        _, card_link = pick_name_and_link(card)
-        card_url = urljoin("https://wicom.com/", card_link["href"]) if card_link else ""
-        if card_url not in parsed_urls:          # show a card we could NOT read
-            snippet = "NOT PARSED CARD:\n" + str(card)[:3000]
+        name_el, card_link = pick_name_and_link(card)
+        if card_link is None or not name_el.get_text(strip=True):
+            snippet = "SKIPPED CARD (should not be a product):\n" + str(card)[:3000]
             break
     return {
         "page_title": soup.title.get_text(strip=True) if soup.title else "",
@@ -281,6 +279,8 @@ def parse_listing_page(html, manufacturer):
         if not is_product_url(url):
             continue  # skip empty template cards (wishlist/compare sidebar)
         code, description = read_code_and_description(name_el, url)
+        if not code.strip():
+            continue  # banner / info tile in the grid, not a product
         # the site sometimes puts the extra number on the code line
         extra = code[len(clean_code(code)):].strip()
         code = clean_code(code)
