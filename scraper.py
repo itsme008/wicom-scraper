@@ -207,6 +207,25 @@ def find_product_cards(soup):
     return cards
 
 
+def pick_name_and_link(card):
+    """
+    Return (name_element, link_element).
+    The name element <strong class="product-item-name"> holds 'CODE<br/>NAME'.
+    """
+    name = card.select_one(".product-item-name")
+    link = None
+    if name is not None:
+        if name.name == "a" and name.get("href"):
+            link = name
+        else:
+            link = name.find_parent("a", href=True) or name.select_one("a[href]")
+    if link is None:
+        link = card.select_one("a.product-item-photo[href], a.product-item-link[href]")
+    if link is None:
+        link = pick_title_link(card)
+    return (name if name is not None else link), link
+
+
 def pick_title_link(card):
     """The product link with the most text (the image link has no text)."""
     links = [a for a in card.select(PRODUCT_LINK)
@@ -225,9 +244,9 @@ def diagnose(url):
     parsed_urls = {r["Product URL"] for r in parsed}
     snippet = ""
     for card in soup.select("ol.product-items > li.product-item"):
-        link = pick_title_link(card)
-        url = urljoin("https://wicom.com/", link["href"]) if link else ""
-        if url not in parsed_urls:          # show a card we could NOT read
+        _, card_link = pick_name_and_link(card)
+        card_url = urljoin("https://wicom.com/", card_link["href"]) if card_link else ""
+        if card_url not in parsed_urls:          # show a card we could NOT read
             snippet = "NOT PARSED CARD:\n" + str(card)[:3000]
             break
     return {
@@ -254,14 +273,14 @@ def parse_listing_page(html, manufacturer):
     rows = []
 
     for item in find_product_cards(soup):
-        link = pick_title_link(item)
+        name_el, link = pick_name_and_link(item)
         if link is None:
             continue
 
         url = urljoin("https://wicom.com/", link.get("href", ""))
         if not is_product_url(url):
             continue  # skip empty template cards (wishlist/compare sidebar)
-        code, description = read_code_and_description(link, url)
+        code, description = read_code_and_description(name_el, url)
         # the site sometimes puts the extra number on the code line
         extra = code[len(clean_code(code)):].strip()
         code = clean_code(code)
