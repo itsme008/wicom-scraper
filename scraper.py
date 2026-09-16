@@ -295,6 +295,8 @@ def get_manufacturers(session=None):
             # skip the single-letter "A", "B", "C" headings
             if href.startswith("#") or len(name) <= 1:
                 continue
+            if href.rstrip("/").endswith("hersteller"):  # the overview page itself
+                continue
             brands[name] = href
         if brands:
             break
